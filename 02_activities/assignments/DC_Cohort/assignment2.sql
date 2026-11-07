@@ -320,8 +320,7 @@ Finally, make sure you have a WHERE statement to update the right row,
 When you have all of these components, you can run the update statement. */
 --QUERY 12
 
-SELECT
-  ALTER TABLE product_units
+ALTER TABLE product_units
 ADD current_quantity INT;
 
 UPDATE product_units
