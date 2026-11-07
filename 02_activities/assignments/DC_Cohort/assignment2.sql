@@ -321,20 +321,8 @@ When you have all of these components, you can run the update statement. */
 --QUERY 12
 
 SELECT
-    pu.product_id,
-    pu.product_name,
-    COALESCE(
-        (
-            SELECT vi.quantity
-            FROM vendor_inventory AS vi
-            WHERE vi.product_id = pu.product_id
-            ORDER BY vi.market_date DESC
-            LIMIT 1
-        ),
-        0
-    ) AS latest_quantity
-FROM product_units AS pu;
-
+  ALTER TABLE product_units
+ADD current_quantity INT;
 
 UPDATE product_units
 SET current_quantity = COALESCE(
@@ -347,13 +335,6 @@ SET current_quantity = COALESCE(
     ),
     0
 );
-
-
-SELECT
-    product_id,
-    product_name,
-    current_quantity
-FROM product_units;
 
 
 --END QUERY
