@@ -21,12 +21,21 @@ nulls, and 'unit' for the second column with nulls.
 The `||` values concatenate the columns into strings. 
 Edit the appropriate columns -- you're making two edits -- and the NULL rows will be fixed. 
 All the other rows will remain the same. */
+
 --QUERY 1
 
-
-
+SELECT 
+product_name || ', ' ||
+COALESCE(product_size, '') ||
+' (' ||
+COALESCE(product_qty_type, 'unit') ||
+')'
+FROM product;
 
 --END QUERY
+
+
+
 
 
 --Windowed Functions
@@ -41,8 +50,16 @@ HINT: One of these approaches uses ROW_NUMBER() and one uses DENSE_RANK().
 Filter the visits to dates before April 29, 2022. */
 --QUERY 2
 
-
-
+SELECT
+    customer_id,
+    market_date,
+    DENSE_RANK() OVER (
+        PARTITION BY customer_id
+        ORDER BY market_date
+    ) AS visit_number
+FROM customer_purchases
+WHERE market_date < '2022-04-29'
+ORDER BY customer_id, market_date;
 
 --END QUERY
 
@@ -52,9 +69,21 @@ then write another query that uses this one as a subquery (or temp table) and fi
 only the customer’s most recent visit.
 HINT: Do not use the previous visit dates filter. */
 --QUERY 3
-
-
-
+SELECT DISTINCT
+    customer_id,
+    market_date,
+    visit_number
+FROM (
+    SELECT
+        customer_id,
+        market_date,
+        DENSE_RANK() OVER (
+            PARTITION BY customer_id
+            ORDER BY market_date DESC
+        ) AS visit_number
+    FROM customer_purchases
+) AS ranked_visits
+WHERE visit_number = 1;
 
 --END QUERY
 
@@ -66,7 +95,16 @@ You can make this a running count by including an ORDER BY within the PARTITION 
 Filter the visits to dates before April 29, 2022. */
 --QUERY 4
 
-
+SELECT
+    customer_id,
+    product_id,
+    market_date,
+    COUNT(*) OVER (
+        PARTITION BY customer_id, product_id
+    ) AS purchase_count
+FROM customer_purchases
+WHERE market_date < '2022-04-29'
+ORDER BY customer_id, product_id, market_date;
 
 
 --END QUERY
@@ -84,18 +122,30 @@ Remove any trailing or leading whitespaces. Don't just use a case statement for 
 
 Hint: you might need to use INSTR(product_name,'-') to find the hyphens. INSTR will help split the column. */
 --QUERY 5
-
-
-
+SELECT
+    product_name,
+    CASE
+        WHEN INSTR(product_name, '-') > 0
+        THEN TRIM(
+            SUBSTR(
+                product_name,
+                INSTR(product_name, '-') + 1
+            )
+        )
+        ELSE NULL
+    END AS description
+FROM product;
 
 --END QUERY
 
 
 /* 2. Filter the query to show any product_size value that contain a number with REGEXP. */
 --QUERY 6
-
-
-
+SELECT
+    product_name,
+    product_size
+FROM product
+WHERE product_size REGEXP '[0-9]';
 
 --END QUERY
 
@@ -111,8 +161,34 @@ HINT: There are a possibly a few ways to do this query, but if you're struggling
 with a UNION binding them. */
 --QUERY 7
 
+WITH daily_sales AS (
+    SELECT
+        market_date,
+        SUM(quantity * cost_per_quantity) AS total_sales
+    FROM customer_purchases
+    GROUP BY market_date
+),
+ranked_sales AS (
+    SELECT
+        market_date,
+        total_sales,
+        RANK() OVER (ORDER BY total_sales DESC) AS best_rank,
+        RANK() OVER (ORDER BY total_sales ASC) AS worst_rank
+    FROM daily_sales
+)
+SELECT
+    market_date,
+    total_sales
+FROM ranked_sales
+WHERE best_rank = 1
 
+UNION
 
+SELECT
+    market_date,
+    total_sales
+FROM ranked_sales
+WHERE worst_rank = 1;
 
 --END QUERY
 
@@ -132,7 +208,29 @@ How many customers are there (y).
 Before your final group by you should have the product of those two queries (x*y).  */
 --QUERY 8
 
+SELECT
+    v.vendor_name,
+    p.product_name,
+    SUM(5 * vi.original_price) AS potential_revenue
+FROM (
+    SELECT DISTINCT
+        vendor_id,
+        product_id,
+        original_price
+    FROM vendor_inventory
+) AS vi
 
+JOIN vendor AS v
+    ON vi.vendor_id = v.vendor_id
+
+JOIN product AS p
+    ON vi.product_id = p.product_id
+
+CROSS JOIN customer AS c
+
+GROUP BY
+    v.vendor_name,
+    p.product_name;
 
 
 --END QUERY
@@ -146,7 +244,12 @@ Name the timestamp column `snapshot_timestamp`. */
 --QUERY 9
 
 
-
+CREATE TABLE product_units AS
+SELECT
+    *,
+    CURRENT_TIMESTAMP AS snapshot_timestamp
+FROM product
+WHERE product_qty_type = 'unit';
 
 --END QUERY
 
@@ -154,9 +257,31 @@ Name the timestamp column `snapshot_timestamp`. */
 /*2. Using `INSERT`, add a new row to the product_units table (with an updated timestamp). 
 This can be any product you desire (e.g. add another record for Apple Pie). */
 --QUERY 10
+SELECT *
+FROM product_units
+WHERE product_name = 'Apple Pie';
 
+INSERT INTO product_units (
+    product_id,
+    product_name,
+    product_size,
+    product_category_id,
+    product_qty_type,
+    snapshot_timestamp
+)
+VALUES (
+    7,
+    'Apple Pie',
+    '10"',
+    3,
+    'unit',
+    CURRENT_TIMESTAMP
+);
 
-
+SELECT *
+FROM product_units
+WHERE product_name = 'Apple Pie'
+ORDER BY snapshot_timestamp;
 
 --END QUERY
 
@@ -166,10 +291,14 @@ This can be any product you desire (e.g. add another record for Apple Pie). */
 
 HINT: If you don't specify a WHERE clause, you are going to have a bad time.*/
 --QUERY 11
-
-
-
-
+DELETE FROM product_units
+WHERE product_id = 7
+  AND snapshot_timestamp = (
+      SELECT MIN(snapshot_timestamp)
+      FROM product_units
+      WHERE product_id = 7
+  );
+  
 --END QUERY
 
 
@@ -191,10 +320,52 @@ Finally, make sure you have a WHERE statement to update the right row,
 When you have all of these components, you can run the update statement. */
 --QUERY 12
 
+SELECT
+    pu.product_id,
+    pu.product_name,
+    COALESCE(
+        (
+            SELECT vi.quantity
+            FROM vendor_inventory AS vi
+            WHERE vi.product_id = pu.product_id
+            ORDER BY vi.market_date DESC
+            LIMIT 1
+        ),
+        0
+    ) AS latest_quantity
+FROM product_units AS pu;
 
+
+UPDATE product_units
+SET current_quantity = COALESCE(
+    (
+        SELECT vi.quantity
+        FROM vendor_inventory AS vi
+        WHERE vi.product_id = product_units.product_id
+        ORDER BY vi.market_date DESC
+        LIMIT 1
+    ),
+    0
+);
+
+
+SELECT
+    product_id,
+    product_name,
+    current_quantity
+FROM product_units;
 
 
 --END QUERY
+
+-------------------------------------------------------
+Section 4:
+
+The example about sewing clothes made the article easy to connect with, as my mom is a tailor. When we buy a shirt, we rarely think about the person who stitched it together. Boykis suggests that something similar happens with artificial intelligence. We see what a computer produces, but we often miss the work people did to make that possible. For me, one of the biggest ethical issue is how those workers are treated. The article describes people being paid cents to identify images, even though their work helped create a collection of pictures used to teach computers. It seems unfair that the people doing the same task over and over receive so little pay or credit. If their work is needed, their pay and working conditions should matter just as much as the finished technology. I also found some of the words used to describe people upsetting. Describing someone as an “orphan” based on a photograph is more than just a wrong guess. It assumes that a picture can tell us something it cannot. Someone decided that this was a reasonable way to describe a person. This made me think about how computers can repeat unfair ideas because of the examples people give them. We need to ask whether these descriptions should be used at all.
+
+
+Although Boykis focuses on computers identifying pictures, I think similar concerns apply to tools like ChatGPT. As more people use them for everyday questions, there is a risk that unfair ideas will be repeated and accepted because the answers sound convincing. In setting such as health care, I would be especially concerned about people trusting an answer without questioning which people the answer takes into account and who it leaves out. Checking and removing harmful pictures or text also means making difficult choices. Who decides what should be removed, and whose views matter most? People who have to look at upsetting pictures or read hateful messages need support too. Their wellbeing matters even if we never see them. What stayed with me is that saying a computer does the work does not let people off the hook. The people building and using these tools still have to answer for how workers are treated and how the results affect others.
+
 
 
 
