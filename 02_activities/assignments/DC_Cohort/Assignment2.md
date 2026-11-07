@@ -53,13 +53,35 @@ We want to create employee shifts, splitting up the day into morning and evening
 
 #### Prompt 3
 The store wants to keep customer addresses. Propose two architectures for the CUSTOMER_ADDRESS table, one that will retain changes, and another that will overwrite. Which is type 1, which is type 2? 
+In Type 1, the customer's existing address is updated when they move. The old address is overwritten, so no address history is kept.In Type 2, a new row is created whenever the customer's address changes. The previous address is kept, allowing the store to maintain a history of addresses. The start_date, end_date, and is_current fields can be used to identify the current and previous addresses.
+
 
 **HINT:** search type 1 vs type 2 slowly changing dimensions. 
 
 ```
 Your answer...
 ```
+Type 1 = 
+CUSTOMER_ADDRESS:
+customer_id (PK/FK)
+street_address
+city
+province
+postal_code
 
+
+Type 2 =
+CUSTOMER_ADDRESS
+-----------------------
+address_id (PK)
+customer_id (FK)
+street_address
+city
+province
+postal_code
+start_date
+end_date
+is_current
 ***
 
 ## Section 2:
